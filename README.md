@@ -1,5 +1,5 @@
-###Pulse Patch <> Processing 
-###via Node.js and BLE
+#Pulse Patch <> Processing 
+##via Node.js and BLE
 
 Quickstart Guide
 
