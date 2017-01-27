@@ -53,6 +53,10 @@ const UDP_CMD_STATUS = "q";
 const UDP_DATA = "t";
 const UDP_STOP = ",;\n";
 
+// Packet types:
+const PKT_TYPE_MAX = 0;
+const PKT_TYPE_ADS = 1;
+
 let udpRxOpen = false;
 let stream;
 let streaming = false;
@@ -142,29 +146,29 @@ var parseMessage = function(msg) {
   }
 }
 
-  var parseCommand = cmd => {
-    console.log(`parsing ${cmd}`);
-    switch (cmd) {
-      case PULSE_PATCH_CMD_STREAM_START:
-        console.log("start stream");
-        streaming = true;
-        droppedPacketCounter = 0;
-        break;
-      case PULSE_PATCH_CMD_STREAM_STOP:
-        console.log("stop stream");
-        streaming = false;
-        break;
-      default:
-        // Send message to tell driver command not recognized
-        udpTx.send(new Buffer(`${UDP_CMD_COMMAND},406${UDP_STOP}`), udpTxPort);
-        break;
-    }
+var parseCommand = cmd => {
+  console.log(`parsing ${cmd}`);
+  switch (cmd) {
+    case PULSE_PATCH_CMD_STREAM_START:
+      console.log("start stream");
+      streaming = true;
+      droppedPacketCounter = 0;
+      break;
+    case PULSE_PATCH_CMD_STREAM_STOP:
+      console.log("stop stream");
+      streaming = false;
+      break;
+    default:
+      // Send message to tell driver command not recognized
+      udpTx.send(new Buffer(`${UDP_CMD_COMMAND},406${UDP_STOP}`), udpTxPort);
+      break;
   }
+}
 
-  function error400() {
-    var buf = new Buffer(`${UDP_CMD_ERROR},400,Error: No open BLE device${UDP_STOP}`);
-    udpTx.send(buf,udpTxPort);
-  }
+function error400() {
+  var buf = new Buffer(`${UDP_CMD_ERROR},400,Error: No open BLE device${UDP_STOP}`);
+  udpTx.send(buf,udpTxPort);
+}
 
 var stop = function() {
     noble.stopScanning();
@@ -306,6 +310,7 @@ function exitHandler(options, err) {
         process.exit();
     }
 }
+
 var autoReconnect = function() {
     if (_bleAvailable || noble.state === "poweredOn") {
         noble.on('discover', onDeviceDiscoveredCallback);
@@ -314,7 +319,6 @@ var autoReconnect = function() {
         this.warn("BLE not AVAILABLE");
     }
 }
-
 
 var interpret18bitAsInt32 = function(sample) {
     if ((sample & 0x00020000) > 0) {
@@ -325,14 +329,13 @@ var interpret18bitAsInt32 = function(sample) {
     return sample;
 }
 
-
-var unpackSamples = function(buffer) {
+var MAX_unpackSamples = function(buffer) {
   var D = new Array(2);
 
   D[0] = [0, 0, 0, 0];
   D[1] = [0, 0, 0, 0];
 
-  var bufferPos = 0;
+  var bufferPos = 0; // note this starts at 0 because the buffer is the middle 18 bytes of the MAX data packet
   D[0][0] = ((buffer[bufferPos] & 0xFF) << 10);   //111111110000000000
   bufferPos++; //1
   D[0][0] |= ((buffer[bufferPos] & 0xFF) << 2);   //000000001111111100
@@ -386,29 +389,41 @@ var unpackSamples = function(buffer) {
   // console.log(values);  // verbose
 }
 
-
 var processCompressedData = function(data) {
+  var packetType = parseInt(data[0] >> 6);
+  switch (packetType) {
+    case PKT_TYPE_MAX:
+      MAX_processCompressedData(data);
+      break;
+    case PKT_TYPE_ADS:
+      ADS_processCompressedData(data);
+      break;
+    default:
+      console.error("Unknown Packet Type");
+  }
+}
+
+var MAX_processCompressedData = function(data) {
     if (lastPacket !== null) {
     } else {
         console.log("First Packet");
     }
     lastPacket = data;
-    var packetIndex = parseInt(data[0]);
+    var packetIndex = parseInt(data[0] & 0x3F); // packetIndex, a.k.a. MAX_packetNumber
     var tempAvailable = false;
     switch (packetIndex) {
-        case 4:
+        case 1:
             //console.log(data.length);
-            packetCounter = parseInt(data[0]);  // used to find dropped packets
             var buffer = new Buffer(18);
             for (var i = 0; i < 18; i++) {
                 buffer[i] = data[i + 1];
             }
-            unpackSamples(buffer);
+            MAX_unpackSamples(buffer);
 
             for (var p = 1; p <= 4; p++) {
                 var packet = "";
                 packet = `${UDP_DATA},200,`;
-                packet += (packetCounter - (4-p));
+                packet += (4*packetIndex - (4-p));
                 packet += ",";
                 packet += REDvalues[p-1];
                 packet += ",";
@@ -420,11 +435,12 @@ var processCompressedData = function(data) {
                 }
                 // console.log(packet);
             }
+            packetCounter = packetIndex;  // used to find dropped packets
             break;
 
         default:
-            if(parseInt(data[0]) - packetCounter != 4){ // check for dropped packet
-                lastDroppedPacket = parseInt(data[0]);
+            if(packetIndex - packetCounter != 1){ // check for dropped packet
+                lastDroppedPacket = packetIndex;
                 //var retryString = "&"+dropped;
                 //var reset = Buffer.from(retryString);
                 //_sendCharacteristic.write(reset);
@@ -434,10 +450,10 @@ var processCompressedData = function(data) {
                 // goodPacket++;
                 // console.log(goodPacket)
             }
-            if(packetIndex === 100){
+            if(packetIndex === 25){
               tempInteger = data[19];
             }
-            if(packetIndex === 104){
+            if(packetIndex === 26){
               tempFraction = data[19];
               dieTemp = tempInteger;
               dieTemp += (tempFraction/16);
@@ -449,13 +465,12 @@ var processCompressedData = function(data) {
                 buffer[i] = data[i + 1];
             }
 
-            unpackSamples(buffer);
+            MAX_unpackSamples(buffer);
 
-            packetCounter = parseInt(data[0]);
             for (var p = 1; p <= 4; p++) {
                 var packet = "";
                 packet = `${UDP_DATA},200,`;
-                packet += (packetCounter - (4-p));
+                packet += (4*packetIndex - (4-p));
                 packet += ",";
                 packet += REDvalues[p-1];
                 packet += ",";
@@ -471,9 +486,14 @@ var processCompressedData = function(data) {
                 }
                 // console.log(packet);
             }
+            packetCounter = packetIndex; // packetCounter is the last successful packet # (packetIndex) we've received
 
     }
     //console.log(data.toString());
+}
+
+var ADS_processCompressedData = function(data) {
+  // Do some stuff here...
 }
 
 //do something when app is closing
