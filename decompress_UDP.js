@@ -422,7 +422,7 @@ var MAX_processCompressedData = function(data) {
 
             for (var p = 1; p <= 4; p++) {
                 var packet = "";
-                packet = `${UDP_DATA},200,`;
+                packet = `${UDP_DATA},MAX,200,`;
                 packet += (4*packetIndex - (4-p));
                 packet += ",";
                 packet += REDvalues[p-1];
@@ -469,7 +469,7 @@ var MAX_processCompressedData = function(data) {
 
             for (var p = 1; p <= 4; p++) {
                 var packet = "";
-                packet = `${UDP_DATA},200,`;
+                packet = `${UDP_DATA},MAX,200,`;
                 packet += (4*packetIndex - (4-p));
                 packet += ",";
                 packet += REDvalues[p-1];
@@ -493,23 +493,26 @@ var MAX_processCompressedData = function(data) {
 }
 
 var ADS_processCompressedData = function(data) {
-  var ECGvals = new Array(6);
   var i;
   var sample;
-
   var packet = "";
-  packet = `${UDP_DATA},ADS,64`;
-  for (i = 0; i < 6; i++) {
-    sample  = ( data(i*3+1) && 0xFF ) <<16;
-    sample |= ( data(i*3+2) && 0xFF ) << 8;
-    sample |= ( data(i*3+3) && 0xFF ) ;
-    console.log('')
-  packet += ",";
-  packet += sample;
-  }
-  packet += `${UDP_STOP}`;
-  console.log(packet);
+  var packetIndex = parseInt(data[0] & 0x3F); // packetIndex, a.k.a. MAX_packetNumber
 
+  for (i = 0; i < 6; i++) {
+    packet = `${UDP_DATA},ADS,64,`;
+    packet += packetIndex;
+    packet += ",";
+    sample  = ( data[i*3+1] & 0xFF ) <<16;
+    sample |= ( data[i*3+2] & 0xFF ) << 8;
+    sample |= ( data[i*3+3] & 0xFF ) ;
+    packet += sample;    
+    packet += `${UDP_STOP}`;
+    // console.log(packet);
+    if(udpOpen){
+      var outBuff = new Buffer(packet);
+      udpTx.send(outBuff,0,outBuff.length, udpTxPort);
+    }
+  }
 }
 
 
