@@ -493,8 +493,27 @@ var MAX_processCompressedData = function(data) {
 }
 
 var ADS_processCompressedData = function(data) {
-  // Do some stuff here...
+  var ECGvals = new Array(6);
+  var i;
+  var sample;
+
+  var packet = "";
+  packet = `${UDP_DATA},ADS,64`;
+  for (i = 0; i < 6; i++) {
+    sample  = ( data(i*3+1) && 0xFF ) <<16;
+    sample |= ( data(i*3+2) && 0xFF ) << 8;
+    sample |= ( data(i*3+3) && 0xFF ) ;
+    console.log('')
+  packet += ",";
+  packet += sample;
+  }
+  packet += `${UDP_STOP}`;
+  console.log(packet);
+
 }
+
+
+
 
 //do something when app is closing
 process.on('exit', exitHandler.bind(null, {
