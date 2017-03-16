@@ -44,6 +44,7 @@ const udpTxPort = 10997;
 
 const PULSE_PATCH_CMD_STREAM_START = "b";
 const PULSE_PATCH_CMD_STREAM_STOP = "s";
+const PULSE_PATCH_CMD_STREAM_START_ECG = "a";
 const UDP_CMD_CONNECT = "c";
 const UDP_CMD_COMMAND = "k";
 const UDP_CMD_DISCONNECT  = "d";
@@ -159,6 +160,10 @@ var parseCommand = cmd => {
 	case PULSE_PATCH_CMD_STREAM_STOP:
 	  console.log("stop stream");
 	  streaming = false;
+	  break;
+	case PULSE_PATCH_CMD_STREAM_START_ECG:
+	  console.log("start ECG stream");
+	  streaming = true;
 	  break;
 	default:
 	  // Send message to tell driver command not recognized
@@ -323,11 +328,15 @@ var autoReconnect = function() {
 }
 
 var interpret18bitAsInt32 = function(sample) {
+	/*
 	if ((sample & 0x00020000) > 0) {
 		sample |= 0xFFFC0000;
 	} else {
 		sample &= 0x0003FFFF;
 	}
+	*/
+	sample &= 0x0003FFFF;
+	
 	return sample;
 }
 
@@ -393,6 +402,7 @@ var MAX_unpackWFMsamples = function(buffer) {
 
 var processCompressedData = function(data) {
   var packetType = parseInt(data[0] >> 6);
+  console.log(`Got packet type ${packetType}`);
   switch (packetType) {
 	case PKT_TYPE_MAX_WFM:
 	  MAX_processCompressedWaveformData(data);
@@ -404,7 +414,7 @@ var processCompressedData = function(data) {
 	  ADS_processCompressedWaveformData(data);
 	  break;
 	case PKT_TYPE_ADS_AUX:
-	  ADS_processCompressedAuxiliaryData(data);
+	  //ADS_processCompressedAuxiliaryData(data);
 	  break;
 	default:
 	  console.error("Unknown Packet Type");
@@ -446,7 +456,8 @@ var MAX_processCompressedWaveformData = function(data) {
 	  var outBuff = new Buffer(packet);
 	  udpTx.send(outBuff,0,outBuff.length, udpTxPort);
 	}
-	//console.log(packet);
+	
+	console.log(packet);
 	lastPacket = packetIndex; // packetCounter is the last successful packet # (packetIndex) we've received
 }
 
@@ -528,23 +539,26 @@ var MAX_processCompressedAuxiliaryData = function(data) {
 	  var outBuff = new Buffer(packet);
 	  udpTx.send(outBuff,0,outBuff.length, udpTxPort);
 	}
+	
 	console.log(packet);
-
 }
 
 var ADS_processCompressedWaveformData = function(data) {
   var i;
   var sample;
   var packet = "";
-  var packetIndex = parseInt(data[0] & 0x3F); // packetIndex, a.k.a. MAX_packetNumber
+  var tmp = ((data[0] & 0x3F) << 8) | ((data[1] & 0xFF) );
+  var packetIndex = parseInt(tmp); //
 
   for (i = 0; i < 6; i++) {
 	packet = `${UDP_DATA},ADS,64,`;
 	packet += packetIndex;
 	packet += ",";
-	sample  = ( data[i*3+1] & 0xFF ) <<16;
-	sample |= ( data[i*3+2] & 0xFF ) << 8;
-	sample |= ( data[i*3+3] & 0xFF ) ;
+	packet += i;
+	packet += ",";
+	sample  = ( data[i*3+2] & 0xFF ) <<16;
+	sample |= ( data[i*3+3] & 0xFF ) << 8;
+	sample |= ( data[i*3+4] & 0xFF ) ;
 	packet += sample;    
 	packet += `${UDP_STOP}`;
 	// console.log(packet);

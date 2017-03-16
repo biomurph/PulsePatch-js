@@ -8,7 +8,7 @@ void keyPressed() {
   
   char token = key;
   switch(token){
-     case 'b': case 't':
+     case 'b': case 't': case 'a':
        streamingData = true;
        createFile();
        break;
